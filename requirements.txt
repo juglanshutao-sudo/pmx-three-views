@@ -1,0 +1,3 @@
+# Host Python dependencies. Blender supplies bpy and mathutils separately.
+numpy
+Pillow

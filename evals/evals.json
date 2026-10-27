@@ -1,0 +1,74 @@
+{
+  "trigger_queries": [
+    {
+      "query": "把 E 盘这批萝莉模型分别导出成正/侧/背三视图",
+      "should_trigger": true
+    },
+    {
+      "query": "这几张三视图里角色的脸好黑，裙子上还有黑色网点，帮我查一下",
+      "should_trigger": true
+    },
+    {
+      "query": "手上有一堆 pmx 模型，想要正交转身图做参考",
+      "should_trigger": true
+    },
+    {
+      "query": "为什么我导出的三视图整个人是半透明的",
+      "should_trigger": true
+    },
+    {
+      "query": "参考这些模型帮我重新设计一套更 Q 版的三视图",
+      "should_trigger": false
+    },
+    {
+      "query": "把这个模型的贴图换成我新画的",
+      "should_trigger": false
+    },
+    {
+      "query": "改完之后别的角色又被弄坏了，怎么避免修一个坏一个",
+      "should_trigger": true
+    }
+  ],
+  "cases": [
+    {
+      "id": "batch-export-three-views",
+      "prompt": "models/ 下每个子目录一个 pmx 模型包，导出每个角色的正交三视图，要透明底。",
+      "expected_behavior": "先确认是工程视图而非设计图 → 确认 Blender 有 mmd_tools_local → 单角色试跑并检查脸和裙摆 → 全量跑 → 拼版 → 自动质检 → 人工看图 → 用数字汇报",
+      "assertions": [
+        "交付前跑过单角色验证",
+        "材质按四条规则重建（真 alpha 判定、零 alpha 直通、单面剔除、unlit）",
+        "自动质检只判空白/贴边，并明确说明颜色靠人工"
+      ]
+    },
+    {
+      "id": "diagnose-black-face",
+      "prompt": "导出的三视图里角色脸上有一块黑色网点，别人做的版本是干净的。",
+      "expected_behavior": "先用材质 ID 染色图定位归属，再逐材质隔离并保留真实 alpha，再二分单变量；同时用原生材质渲染对照判断是否模型自身问题",
+      "assertions": [
+        "没有直接改渲染参数硬修",
+        "隔离测试保留了真实 alpha 链路",
+        "给出「模型自身缺陷」与「参数问题」的判定依据"
+      ]
+    },
+    {
+      "id": "transparent-body-regression",
+      "prompt": "改完之后别的角色整个人变半透明了，怎么回事。",
+      "expected_behavior": "检查混合模式判据是否用了 image.depth 而不是 alpha 内容最小值；确认不透明材质回到 DITHERED；只重跑受影响角色验证，再全量",
+      "assertions": [
+        "定位到 BLENDED 误用",
+        "改用 buf[3::4].min() < 0.98 判据",
+        "承认这是自己引入的回归并说明影响范围"
+      ]
+    },
+    {
+      "id": "baseline-regression-guard",
+      "prompt": "我要改材质，但上次改完另外两个角色被弄坏了。",
+      "expected_behavior": "先在当前已验收的图上建立基准（人眼确认过），改动后全量跑 check，出现 REGRESSED 就回滚而不是继续调参",
+      "assertions": [
+        "建基准前确认这一版是干净的",
+        "改动后跑全量对比而不是只看被修的角色",
+        "报警后优先回滚"
+      ]
+    }
+  ]
+}
