@@ -23,9 +23,10 @@ import numpy as np
 from PIL import Image
 
 VIEWS = ("front", "side", "back")
-MAX_CHANGED = 0.02      # share of pixels allowed to differ
+MAX_CHANGED = 0.02      # share of pixels whose RGBA may differ
 MIN_ALPHA_IOU = 0.99    # silhouette must stay essentially identical
-MAX_MEAN_DELTA = 12.0   # mean channel difference over the whole image
+MAX_MEAN_DELTA = 12.0   # mean RGB difference over the whole image
+MAX_ALPHA_DELTA = 2.0   # mean alpha difference over pixels opaque in both
 
 
 def load_rgba(path: Path) -> np.ndarray:
@@ -38,21 +39,48 @@ def fingerprint(arr: np.ndarray) -> dict:
     rgb = arr[:, :, :3][solid] if solid.any() else np.zeros((1, 3))
     return {"alpha_px": int(solid.sum()),
             "mean_rgb": [round(float(v), 2) for v in rgb.mean(axis=0)],
+            "mean_alpha": round(float(alpha[solid].mean()) if solid.any() else 0.0, 2),
             "size": [int(arr.shape[1]), int(arr.shape[0])]}
+
+
+BAD = {"ok": False, "alpha_iou": 0.0, "changed": 1.0,
+       "mean_delta": 255.0, "alpha_delta": 255.0}
 
 
 def compare(a: np.ndarray, b: np.ndarray) -> dict:
     if a.shape != b.shape:
-        return {"ok": False, "reason": f"size {a.shape[1]}x{a.shape[0]} -> {b.shape[1]}x{b.shape[0]}"}
+        # every field must exist: the caller prints them unconditionally
+        out = dict(BAD)
+        out["reason"] = f"size {a.shape[1]}x{a.shape[0]} -> {b.shape[1]}x{b.shape[0]}"
+        return out
+
     ma, mb = a[:, :, 3] >= 128, b[:, :, 3] >= 128
     inter = np.logical_and(ma, mb).sum()
     union = np.logical_or(ma, mb).sum()
     iou = float(inter / union) if union else 1.0
-    changed = float((np.abs(a[:, :, :3] - b[:, :, :3]).max(axis=2) > 8).mean())
+    # RGBA, so a drop in opacity counts as a change even when RGB is untouched
+    changed = float((np.abs(a - b).max(axis=2) > 8).mean())
     mean_delta = float(np.abs(a[:, :, :3] - b[:, :, :3]).mean())
-    ok = iou >= MIN_ALPHA_IOU and changed <= MAX_CHANGED and mean_delta <= MAX_MEAN_DELTA
-    return {"ok": ok, "alpha_iou": round(iou, 5), "changed": round(changed, 6),
-            "mean_delta": round(mean_delta, 3)}
+    # silhouette (alpha>=128) stays identical when 255 drops to 180, so the
+    # alpha channel itself has to be compared or the fade goes unseen
+    both = ma & mb
+    alpha_delta = float(np.abs(a[:, :, 3][both] - b[:, :, 3][both]).mean()) if both.any() else 0.0
+    ok = (iou >= MIN_ALPHA_IOU and changed <= MAX_CHANGED
+          and mean_delta <= MAX_MEAN_DELTA and alpha_delta <= MAX_ALPHA_DELTA)
+    out = {"ok": ok, "alpha_iou": round(iou, 5), "changed": round(changed, 6),
+           "mean_delta": round(mean_delta, 3), "alpha_delta": round(alpha_delta, 3)}
+    if not ok:
+        fails = []
+        if iou < MIN_ALPHA_IOU:
+            fails.append(f"silhouette {iou:.4f} < {MIN_ALPHA_IOU}")
+        if changed > MAX_CHANGED:
+            fails.append(f"changed {changed*100:.2f}% > {MAX_CHANGED*100:.0f}%")
+        if mean_delta > MAX_MEAN_DELTA:
+            fails.append(f"rgb delta {mean_delta:.1f} > {MAX_MEAN_DELTA}")
+        if alpha_delta > MAX_ALPHA_DELTA:
+            fails.append(f"alpha delta {alpha_delta:.1f} > {MAX_ALPHA_DELTA}")
+        out["reason"] = "; ".join(fails)
+    return out
 
 
 def cmd_save(root: Path, baseline: Path) -> int:
@@ -100,23 +128,20 @@ def cmd_check(root: Path, baseline: Path, strict: bool) -> int:
                 rows.append({"char": name, "view": view, "status": "MISSING"})
                 bad += 1
                 continue
-            r = compare(load_rgba(ref_path), load_rgba(cur_path))
+            r = dict(compare(load_rgba(ref_path), load_rgba(cur_path)))
             r.update({"char": name, "view": view})
+            r["status"] = "ok" if r["ok"] else "REGRESSED"
             if not r["ok"]:
                 bad += 1
-                r["status"] = "REGRESSED"
-            else:
-                r["status"] = "ok"
             rows.append(r)
 
-    print(f"{'character':<12}{'view':<7}{'status':<11}{'alpha IoU':>11}{'changed':>10}{'mean Δ':>9}")
+    print(f"{'character':<12}{'view':<7}{'status':<11}{'alpha IoU':>11}{'changed':>10}"
+          f"{'rgb Δ':>8}{'αΔ':>7}  reason")
     for r in rows:
-        if r["status"] == "ok":
-            print(f"{r['char']:<12}{r['view']:<7}{'ok':<11}{r['alpha_iou']:>11.5f}"
-                  f"{r['changed'] * 100:>9.3f}%{r['mean_delta']:>9.2f}")
-        elif r["status"] == "REGRESSED":
-            print(f"{r['char']:<12}{r['view']:<7}{'REGRESSED':<11}{r['alpha_iou']:>11.5f}"
-                  f"{r['changed'] * 100:>9.3f}%{r['mean_delta']:>9.2f}")
+        if r["status"] in ("ok", "REGRESSED"):
+            print(f"{r['char']:<12}{r['view']:<7}{r['status']:<11}{r['alpha_iou']:>11.5f}"
+                  f"{r['changed'] * 100:>9.3f}%{r['mean_delta']:>8.2f}{r['alpha_delta']:>7.2f}"
+                  f"  {r.get('reason', '')}")
         else:
             print(f"{r['char']:<12}{r['view']:<7}{r['status']:<11}{r.get('reason', '')}")
 

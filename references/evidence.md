@@ -37,6 +37,7 @@ Evidence ids point into the private evidence pack used for distillation: `U<n>` 
 
 | item | status | evidence |
 |---|---|---|
+| 三视图整体发灰、颜色发白、对比度低 | fixed | Workbench 首测用默认 AgX，颜色明显发白；改 Standard 后恢复正常 |
 | 脸上或裙子上出现黑白网点 | fixed | 第一轮 12 个角色里两处黑斑 |
 | 整个人像半透明，能透过衣服看到腿 | fixed | 某角色 26 个材质全是「RGBA 但 alpha 全 1」，改判据后恢复 |
 | 整张脸有一条黑带，换贴图、换纯色都无效 | fixed | 材质 ID 染色图显示问题区域归属该层 |
@@ -53,3 +54,4 @@ Evidence ids point into the private evidence pack used for distillation: `U<n>` 
 | 不知道那块黑斑/纯色是哪个材质画的，逐个隐藏试到崩溃 | verified | 用这个方法在 20 个材质里定位到具体那一层 |
 | 换一台机器或进 CI 后，EEVEE 渲染直接失败或输出空图 | observed | 官方渲染文档明确写了这一点；本机有 GPU 所以没触发，Workbench 退化路径已实测 |
 | 想用 Khronos PBR Neutral 让颜色更准，结果反而偏色 | verified | 同一模型实测：与 Standard 的像素差均值 9.12，14% 的像素差超过 8 |
+| 更新 skill 后，README / LICENSE / .git 等发布配套文件从目录里消失 | verified | 本仓库升到 v6 时 62 个文件被归档，README/LICENSE/requirements/.git 全在 history/v5 里 |
