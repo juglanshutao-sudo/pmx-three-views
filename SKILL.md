@@ -7,6 +7,8 @@ description: "Render orthographic front / side / back three-views from MMD PMX c
 
 把一批 PMX 角色模型包渲染成正交三视图（正/侧/背），交付透明底 PNG、每个角色一张带标签的拼版、以及全部角色的总览。产物是「这个模型长什么样」的工程视图：不改造型、不校比例、不补件，模型自身的缺陷也如实呈现。前提是先把材质链路按下面的规则做对，否则会得到黑斑、纯色块或半透明人体。
 
+运行要求：驱动侧 Python 需要 Pillow 与 numpy（拼版、质检、基准比对都用到）；Blender 侧脚本只用 Blender 自带的 numpy，不需要额外安装。Blender 5.x 且配置里已启用 mmd_tools_local。
+
 Evidence tags: VERIFIED = proven by a check or accepted by the user; FIXED = failed first, fix known; OBSERVED = happened, not proven general; INFERRED = plausible, unproven. Details and sources: [references/evidence.md](references/evidence.md).
 
 ## When to use
@@ -31,7 +33,7 @@ Not for:
 | `blender_exe` | yes | <blender>/blender.exe | Blender 5.x 可执行文件，且它的配置里装了 mmd_tools_local（operator 前缀 bpy.ops.mmd_tools_local） |
 | `character` | no | 七七 | 只跑某一个角色时传角色名，省略则跑全部 |
 | `resolution` | no | 1600x2000 | 单张视图分辨率 WxH，透传 run_all.py 的 --res |
-| `font_dir` | no | C:/Windows/Fonts | 拼版用的中文字体目录（需要一个常规体和一个粗体），省略时按 --font 名字在当前路径找 |
+| `font_dir` | no | 系统字体目录 | 拼版用的中文字体目录（需要一个常规体和一个粗体）。省略时按 --font 的名字在当前路径找 |
 | `baseline_dir` | no | out/three_views_baseline | 已验收版本的基准目录，baseline_guard save 写入、check 读取。只在人眼确认过的那一版上执行 save |
 
 ## Principles (non-negotiable)
@@ -129,6 +131,7 @@ Not for:
 
 | symptom | cause | fix | status |
 |---|---|---|---|
+| 三视图整体发灰、颜色发白、对比度低 | 场景默认 view_transform 是 AgX（Blender 4.x 起），它对人眼友好但会压饱和度和高光 | 显式设 scene.view_settings.view_transform='Standard'、look='None'；不设就一定偏色 | FIXED |
 | 脸上或裙子上出现黑白网点 | RGB 贴图（无 alpha 通道）的 TexImage Alpha 输出采样为 0，被乘进材质 alpha 后整层近乎全透明，EEVEE 的 DITHERED 把它抖成网点 | 贴图 alpha 只在材质确实有半透明像素时才相乘，其余用 mmd_material.alpha | FIXED |
 | 整个人像半透明，能透过衣服看到腿 | 按 image.depth==32 判断要不要 BLENDED，而贴图 alpha 其实全为 1；不透明层在 BLENDED 下不写深度、alpha 累积 | 取样判 buf[3::4].min() < 0.98；只在真有半透明时用 BLENDED | FIXED |
 | 整张脸有一条黑带，换贴图、换纯色都无效 | alpha=0 的层（例如备用脸）几何上覆盖整个头部，仍走 MixShader 时被抖出黑斑 | alpha<=0.001 的材质直接接 Transparent BSDF，绕过 MixShader | FIXED |
@@ -145,6 +148,7 @@ Not for:
 | 不知道那块黑斑/纯色是哪个材质画的，逐个隐藏试到崩溃 | 没有把材质归属可视化，只能靠猜 | 跑 material_id_map.py，读问题区域像素颜色，查 color_key.json 得到材质名；再 hide 该层看露出什么 | VERIFIED |
 | 换一台机器或进 CI 后，EEVEE 渲染直接失败或输出空图 | EEVEE 即使 --background 也需要 GPU 上下文；纯 CPU 环境没有 | 退回 Workbench（light=FLAT / color_type=TEXTURE / view_transform=Standard / film_transparent），或改 Cycles CPU | OBSERVED |
 | 想用 Khronos PBR Neutral 让颜色更准，结果反而偏色 | 它会对高光做 rolloff，是给 albedo review 用的压缩曲线，不保证输出等于贴图原值 | 三视图要的是贴图原色，坚持 Standard（唯一做恒等映射的选项） | VERIFIED |
+| 更新 skill 后，README / LICENSE / .git 等发布配套文件从目录里消失 | w2s 的 promote 会整体替换输出目录；如果这个目录同时充当 git 仓库，非生成物会被归档进 history 下的历史版本目录 | 发布仓库 clone 到独立目录；或用包装脚本在 promote 前后备份再还原那几个文件 | VERIFIED |
 
 ## Verification (done means)
 
@@ -163,6 +167,7 @@ Not for:
 - 自动质检判不了颜色，也不能判造型对不对。所有颜色类问题必须人工看图。
 - 基准的「正确性」靠人确认：save 只是冻结当前这一版。如果在一版坏图上建基准，之后所有对比都会以坏图为标准。
 - EEVEE 的 headless 渲染仍然需要 GPU 上下文。在没有 GPU 的机器（CI、纯 CPU 容器）上会失败。此时退回 Workbench：scene.display.shading.light='FLAT'、color_type='TEXTURE'、view_transform='Standard'、film_transparent=True。实测两个出过问题的角色在 Workbench 下都正常，且完全避开材质转换的坑，代价是不体现球面贴图高光。
+- w2s 的 promote 是整体替换目录，不是合并。任何放在输出目录里的非生成物（仓库文件、待办笔记、临时素材）都会在升级时被归档到 history 下的历史版本目录，需要自己还原。
 
 ## Bundled scripts
 

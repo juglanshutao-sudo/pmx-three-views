@@ -2,7 +2,7 @@
   "name": "pmx-three-views",
   "title": "从 PMX 模型导出角色正交三视图（附材质避坑清单）",
   "description": "Render orthographic front / side / back three-views from MMD PMX character models in Blender: one isolated process per character, unlit texture-colour emission materials, exact 1:1 panel scale, transparent PNGs plus a labelled sheet, and a baseline guard that catches the classic fixed-two-broke-two regression. Bundles a batch driver, a sheet compositor, a sanity checker and the baseline differ. Use when asked to 导出或画出角色三视图, to make an orthographic turnaround from .pmx models, when existing renders show black patches on a face, a skirt painted as one flat colour, or a body that looks transparent, or when a fix for one character silently broke another.",
-  "goal": "把一批 PMX 角色模型包渲染成正交三视图（正/侧/背），交付透明底 PNG、每个角色一张带标签的拼版、以及全部角色的总览。产物是「这个模型长什么样」的工程视图：不改造型、不校比例、不补件，模型自身的缺陷也如实呈现。前提是先把材质链路按下面的规则做对，否则会得到黑斑、纯色块或半透明人体。",
+  "goal": "把一批 PMX 角色模型包渲染成正交三视图（正/侧/背），交付透明底 PNG、每个角色一张带标签的拼版、以及全部角色的总览。产物是「这个模型长什么样」的工程视图：不改造型、不校比例、不补件，模型自身的缺陷也如实呈现。前提是先把材质链路按下面的规则做对，否则会得到黑斑、纯色块或半透明人体。\n\n运行要求：驱动侧 Python 需要 Pillow 与 numpy（拼版、质检、基准比对都用到）；Blender 侧脚本只用 Blender 自带的 numpy，不需要额外安装。Blender 5.x 且配置里已启用 mmd_tools_local。",
   "when_to_use": [
     "用户要「导出/画出角色三视图」「正交转身图」，素材是 MMD 的 .pmx 模型包",
     "已有三视图里出现脸上黑斑、裙子一整块纯色、整个人像半透明",
@@ -47,8 +47,8 @@
     },
     {
       "name": "font_dir",
-      "description": "拼版用的中文字体目录（需要一个常规体和一个粗体），省略时按 --font 名字在当前路径找",
-      "example": "C:/Windows/Fonts",
+      "description": "拼版用的中文字体目录（需要一个常规体和一个粗体）。省略时按 --font 的名字在当前路径找",
+      "example": "系统字体目录",
       "required": false
     },
     {
@@ -280,6 +280,13 @@
   ],
   "gotchas": [
     {
+      "symptom": "三视图整体发灰、颜色发白、对比度低",
+      "cause": "场景默认 view_transform 是 AgX（Blender 4.x 起），它对人眼友好但会压饱和度和高光",
+      "fix": "显式设 scene.view_settings.view_transform='Standard'、look='None'；不设就一定偏色",
+      "status": "fixed",
+      "evidence": "Workbench 首测用默认 AgX，颜色明显发白；改 Standard 后恢复正常"
+    },
+    {
       "symptom": "脸上或裙子上出现黑白网点",
       "cause": "RGB 贴图（无 alpha 通道）的 TexImage Alpha 输出采样为 0，被乘进材质 alpha 后整层近乎全透明，EEVEE 的 DITHERED 把它抖成网点",
       "fix": "贴图 alpha 只在材质确实有半透明像素时才相乘，其余用 mmd_material.alpha",
@@ -390,6 +397,13 @@
       "fix": "三视图要的是贴图原色，坚持 Standard（唯一做恒等映射的选项）",
       "status": "verified",
       "evidence": "同一模型实测：与 Standard 的像素差均值 9.12，14% 的像素差超过 8"
+    },
+    {
+      "symptom": "更新 skill 后，README / LICENSE / .git 等发布配套文件从目录里消失",
+      "cause": "w2s 的 promote 会整体替换输出目录；如果这个目录同时充当 git 仓库，非生成物会被归档进 history 下的历史版本目录",
+      "fix": "发布仓库 clone 到独立目录；或用包装脚本在 promote 前后备份再还原那几个文件",
+      "status": "verified",
+      "evidence": "本仓库升到 v6 时 62 个文件被归档，README/LICENSE/requirements/.git 全在 history/v5 里"
     }
   ],
   "verification": [
@@ -411,7 +425,8 @@
     "依赖 Blender 配置里已装 mmd_tools_local；扩展名或 operator 前缀变了要同步改 render_three_views.py。",
     "自动质检判不了颜色，也不能判造型对不对。所有颜色类问题必须人工看图。",
     "基准的「正确性」靠人确认：save 只是冻结当前这一版。如果在一版坏图上建基准，之后所有对比都会以坏图为标准。",
-    "EEVEE 的 headless 渲染仍然需要 GPU 上下文。在没有 GPU 的机器（CI、纯 CPU 容器）上会失败。此时退回 Workbench：scene.display.shading.light='FLAT'、color_type='TEXTURE'、view_transform='Standard'、film_transparent=True。实测两个出过问题的角色在 Workbench 下都正常，且完全避开材质转换的坑，代价是不体现球面贴图高光。"
+    "EEVEE 的 headless 渲染仍然需要 GPU 上下文。在没有 GPU 的机器（CI、纯 CPU 容器）上会失败。此时退回 Workbench：scene.display.shading.light='FLAT'、color_type='TEXTURE'、view_transform='Standard'、film_transparent=True。实测两个出过问题的角色在 Workbench 下都正常，且完全避开材质转换的坑，代价是不体现球面贴图高光。",
+    "w2s 的 promote 是整体替换目录，不是合并。任何放在输出目录里的非生成物（仓库文件、待办笔记、临时素材）都会在升级时被归档到 history 下的历史版本目录，需要自己还原。"
   ],
   "scripts": [
     {
